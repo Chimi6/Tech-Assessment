@@ -1,0 +1,92 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  EventBridge rules to trigger AWS Glue jobs when new files are uploaded to specific folders in an S3 bucket.
+  
+Parameters:
+  BucketName:
+    Type: String
+    Description: "Name of the S3 bucket to monitor for file uploads."
+  RawGlueJobName:
+    Type: String
+    Description: "Name of the AWS Glue job to trigger for raw file processing."
+  ProcessedGlueJobName:
+    Type: String
+    Description: "Name of the AWS Glue job to trigger for analytics transformation."
+
+Resources:
+  EventBridgeInvokeGlueRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "EventBridgeInvokeGlueRole-${AWS::StackName}"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: "InvokeGlueJobsPolicy"
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - glue:StartJobRun
+                Resource:
+                  - !Sub "arn:aws:glue:${AWS::Region}:${AWS::AccountId}:job/${RawGlueJobName}"
+                  - !Sub "arn:aws:glue:${AWS::Region}:${AWS::AccountId}:job/${ProcessedGlueJobName}"
+
+  RawEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: "TriggerRawGlueJobRule"
+      EventPattern:
+        source:
+          - "aws.s3"
+        detail-type:
+          - "Object Created"
+        detail:
+          bucket:
+            name:
+              - !Ref BucketName
+          object:
+            key:
+              - prefix: "raw/"
+      Targets:
+        - Id: "RawGlueJobTarget"
+          Arn: !Sub "arn:aws:glue:${AWS::Region}:${AWS::AccountId}:job/${RawGlueJobName}"
+          RoleArn: !GetAtt EventBridgeInvokeGlueRole.Arn
+          Input: "{}"
+      State: "ENABLED"
+
+  ProcessedEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: "TriggerProcessedGlueJobRule"
+      EventPattern:
+        source:
+          - "aws.s3"
+        detail-type:
+          - "Object Created"
+        detail:
+          bucket:
+            name:
+              - !Ref BucketName
+          object:
+            key:
+              - prefix: "processed/"
+      Targets:
+        - Id: "ProcessedGlueJobTarget"
+          Arn: !Sub "arn:aws:glue:${AWS::Region}:${AWS::AccountId}:job/${ProcessedGlueJobName}"
+          RoleArn: !GetAtt EventBridgeInvokeGlueRole.Arn
+          Input: "{}"
+      State: "ENABLED"
+
+Outputs:
+  RawEventRuleArn:
+    Description: "ARN of the EventBridge rule that triggers the raw file Glue job"
+    Value: !GetAtt RawEventRule.Arn
+  ProcessedEventRuleArn:
+    Description: "ARN of the EventBridge rule that triggers the processed file Glue job"
+    Value: !GetAtt ProcessedEventRule.Arn

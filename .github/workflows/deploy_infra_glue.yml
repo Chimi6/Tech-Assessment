@@ -1,0 +1,90 @@
+name: Deploy Infrastructure Stacks
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy_manifest:
+    name: Deploy DynamoManifestStack
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v2
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Deploy DynamoManifestStack
+        run: |
+          aws cloudformation deploy \
+            --template-file cloudformation/DynamoManifestStack.yaml \
+            --stack-name MyCompany-DynamoManifestStack \
+            --capabilities CAPABILITY_NAMED_IAM
+
+  deploy_glue:
+    name: Deploy GlueStack
+    runs-on: ubuntu-latest
+    needs: deploy_manifest
+    outputs:
+      rawGlueJobName: ${{ steps.getGlueOutputs.outputs.rawGlueJobName }}
+      processedGlueJobName: ${{ steps.getGlueOutputs.outputs.processedGlueJobName }}
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v2
+      
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+      
+      - name: Deploy GlueStack
+        run: |
+          aws cloudformation deploy \
+            --template-file cloudformation/GlueStack.yaml \
+            --stack-name MyCompany-GlueStack \
+            --parameter-overrides \
+                TempDir=s3://my-temp-bucket/temp/ \
+                GlueScriptBucket=my-deployment-bucket \
+                ProcessCSVScriptKey=scripts/process_csv.py \
+                AnalyticsTransformScriptKey=scripts/analytics_transform.py \
+            --capabilities CAPABILITY_NAMED_IAM
+
+      - name: Get Glue Stack Outputs
+        id: getGlueOutputs
+        run: |
+          RAW_JOB=$(aws cloudformation describe-stacks --stack-name MyCompany-GlueStack --query "Stacks[0].Outputs[?OutputKey=='RawGlueJobName'].OutputValue" --output text)
+          PROCESSED_JOB=$(aws cloudformation describe-stacks --stack-name MyCompany-GlueStack --query "Stacks[0].Outputs[?OutputKey=='ProcessedGlueJobName'].OutputValue" --output text)
+          echo "rawGlueJobName=${RAW_JOB}" >> $GITHUB_OUTPUT
+          echo "processedGlueJobName=${PROCESSED_JOB}" >> $GITHUB_OUTPUT
+
+  deploy_eventtrigger:
+    name: Deploy GlueEventTriggerStack
+    runs-on: ubuntu-latest
+    needs: deploy_glue
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v2
+      
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+      
+      - name: Deploy GlueEventTriggerStack
+        run: |
+          aws cloudformation deploy \
+            --template-file cloudformation/GlueEventTriggerStack.yaml \
+            --stack-name MyCompany-GlueEventTriggerStack \
+            --parameter-overrides \
+                BucketName=mycompany-customerX-prod-datalake \
+                RawGlueJobName=${{ needs.deploy_glue.outputs.rawGlueJobName }} \
+                ProcessedGlueJobName=${{ needs.deploy_glue.outputs.processedGlueJobName }} \
+            --capabilities CAPABILITY_NAMED_IAM

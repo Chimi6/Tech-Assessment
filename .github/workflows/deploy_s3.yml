@@ -1,0 +1,48 @@
+name: Deploy CDK Infrastructure
+
+on:
+  workflow_dispatch:
+    inputs:
+      process_csv_function_arn:
+        description: "ARN for the ProcessCSVFunction Lambda"
+        required: true
+        default: "arn:aws:lambda:us-east-1:123456789012:function:ProcessCSVFunction"
+      analytics_transform_function_arn:
+        description: "ARN for the AnalyticsTransformFunction Lambda"
+        required: true
+        default: "arn:aws:lambda:us-east-1:123456789012:function:AnalyticsTransformFunction"
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v2
+
+      - name: Set up Python 3.x
+        uses: actions/setup-python@v2
+        with:
+          python-version: '3.x'
+
+      - name: Install CDK and Python Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          npm install -g aws-cdk
+
+      - name: Bootstrap CDK (if needed)
+        run: |
+          cdk bootstrap aws://$AWS_ACCOUNT_ID/us-east-1
+        env:
+          AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+
+      - name: Deploy CDK Stack
+        run: |
+          cdk deploy MyCompanyStack \
+            --parameters ProcessCSVFunctionArn=${{ github.event.inputs.process_csv_function_arn }} \
+            --parameters AnalyticsTransformFunctionArn=${{ github.event.inputs.analytics_transform_function_arn }} \
+            --require-approval never
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: us-east-1

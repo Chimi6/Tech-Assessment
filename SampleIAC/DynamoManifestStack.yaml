@@ -1,0 +1,19 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: DynamoDB table for storing the lineage manifest
+
+Resources:
+  LineageManifestTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: LineageManifest
+      AttributeDefinitions:
+        - AttributeName: file_key
+          AttributeType: S
+      KeySchema:
+        - AttributeName: file_key
+          KeyType: HASH
+      BillingMode: PAY_PER_REQUEST
+
+Outputs:
+  LineageManifestTableName:
+    Value: !Ref LineageManifestTable

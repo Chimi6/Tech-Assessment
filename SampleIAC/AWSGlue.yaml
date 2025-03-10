@@ -1,0 +1,99 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: AWS Glue Jobs for ETL Pipeline (CSV to JSON and JSON to Parquet) with IAM Role
+
+Parameters:
+  GlueScriptBucket:
+    Type: String
+    Description: S3 bucket where Glue job scripts are stored.
+  TempDir:
+    Type: String
+    Description: S3 path for temporary directory (e.g., s3://my-temp-bucket/temp/)
+  ProcessCSVScriptKey:
+    Type: String
+    Description: S3 key for the process_csv Glue script (e.g., scripts/process_csv.py)
+  AnalyticsTransformScriptKey:
+    Type: String
+    Description: S3 key for the analytics_transform Glue script (e.g., scripts/analytics_transform.py)
+
+Resources:
+  GlueServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "GlueServiceRole-${AWS::StackName}"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: glue.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: GlueAccessPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:ListBucket
+                Resource: "*"   # Adjust as needed for tighter security
+              - Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:GetItem
+                Resource: "*"   # Adjust to specific table ARNs if desired
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: "arn:aws:logs:*:*:*"
+
+  ProcessCSVJob:
+    Type: AWS::Glue::Job
+    Properties:
+      Name: ProcessCSVJob
+      Role: !GetAtt GlueServiceRole.Arn
+      GlueVersion: "2.0"
+      Command:
+        Name: "glueetl"
+        ScriptLocation: !Sub "s3://${GlueScriptBucket}/${ProcessCSVScriptKey}"
+        PythonVersion: "3"
+      DefaultArguments:
+        "--TempDir": !Ref TempDir
+        "--job-bookmark-option": "job-bookmark-enable"
+        "--additional-python-modules": "pyarrow==2,awswrangler"
+      MaxCapacity: 2.0
+      Timeout: 60
+
+  AnalyticsTransformJob:
+    Type: AWS::Glue::Job
+    Properties:
+      Name: AnalyticsTransformJob
+      Role: !GetAtt GlueServiceRole.Arn
+      GlueVersion: "2.0"
+      Command:
+        Name: "glueetl"
+        ScriptLocation: !Sub "s3://${GlueScriptBucket}/${AnalyticsTransformScriptKey}"
+        PythonVersion: "3"
+      DefaultArguments:
+        "--TempDir": !Ref TempDir
+        "--job-bookmark-option": "job-bookmark-enable"
+        "--additional-python-modules": "pyarrow==2,awswrangler"
+      MaxCapacity: 2.0
+      Timeout: 60
+
+Outputs:
+  GlueServiceRoleArn:
+    Description: "ARN of the Glue Service Role"
+    Value: !GetAtt GlueServiceRole.Arn
+
+  ProcessCSVJobName:
+    Description: "Name of the Glue job that processes CSV files"
+    Value: !Ref ProcessCSVJob
+
+  AnalyticsTransformJobName:
+    Description: "Name of the Glue job that transforms JSON to Parquet"
+    Value: !Ref AnalyticsTransformJob
