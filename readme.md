@@ -13,6 +13,9 @@ This repo contains resources pertaining to my technical assessment. This include
 - Data should be encrypted in transit.
 - Each company needs its own bucket for data isolation.
 
+# Architecture Diagram
+![Architecture Diagram](arch_glue_approach.png)
+
 ## Strategy for Cataloging/Organizing S3 Files
 Each company's bucket needs three high-level directories:
 - **Raw:** This is where we dump new files from customers that need to be processed.
